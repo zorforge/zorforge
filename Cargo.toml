@@ -1,0 +1,10 @@
+[package]
+name = "zorforge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tui = "0.19.0"                        # For terminal-based UI
+crossterm = "0.28.1"                  # For terminal control
+tree-sitter = "0.20.10"               # For syntax parsing
+tree-sitter-highlight = "0.24.5"      # For syntax highlighting
