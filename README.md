@@ -1,4 +1,4 @@
-# zrogorge
+# ZorForge
 Rust-based NeoVim-like Text Editor
 
 ## Current project structure
