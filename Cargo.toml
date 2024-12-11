@@ -1,10 +1,36 @@
 [package]
 name = "zorforge"
 version = "0.1.0"
+authors = ["papa0four <sabatini.jesse@gmail.com, semaj enroh james@enrohsemaj.com"]
 edition = "2021"
 
+# Metadata
+description = "A NeoVim-like, Power Rangers Themed terminal-based text editor"
+license = "Unlicense"
+
 [dependencies]
+# Terminal UI and Backend
 tui = "0.19.0"                        # For terminal-based UI
 crossterm = "0.28.1"                  # For terminal control
-tree-sitter = "0.20.10"               # For syntax parsing
+
+# Directory and File Handling
+walkdir = "2.5.0"                     # Traverse directories for file tree
+fs_extra = "1.3.0"                    # File system utilities (copy, move, etc...)
+
+# Syntax Highlighting
+tree-sitter = "0.24.4"                # For syntax parsing
 tree-sitter-highlight = "0.24.5"      # For syntax highlighting
+
+# Configuration Parsing
+serde = { version = "1.0.215", features = ["derive"] } # Serialization/Deserialization
+toml = "0.8.19"                       # TOML parsing
+
+# Command-line Arguments
+clap = { version = "4.5.23", features = ["derive"] } # Command-line argument parsing
+
+# Asynchronous Handling
+tokio = { version = "1.39.0", features = ["full"] }  # Async runtime for LSP integration
+
+# Utilities
+log = "0.4.18"                        # Logging support
+env_logger = "0.11.5"                 # Environment-based logger
