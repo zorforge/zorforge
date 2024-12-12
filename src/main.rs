@@ -1,63 +1,3 @@
-// use crossterm::event::{self, Event, KeyCode};
-// use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-// use std::io;
-// use tui::backend::CrosstermBackend;
-// use tui::layout::{Constraint, Direction, Layout};
-// use tui::widgets::{Block, Borders};
-// use tui::Terminal;
-//
-// fn main() -> Result<(), io::Error> {
-//     // Enable raw mode
-//     enable_raw_mode()?;
-//     let mut stdout = io::stdout();
-//     let backend = CrosstermBackend::new(&mut stdout);
-//     let mut terminal = Terminal::new(backend)?;
-//
-//     // Main application loop
-//     loop {
-//         terminal.draw(|frame| {
-//             // let size = frame.size();
-//             //
-//             // // Layout: A block with borders
-//             // let block = Block::default().title("Zorforge").borders(Borders::ALL);
-//             //
-//             // frame.render_widget(block, size);
-//             let chunks = Layout::default()
-//                 .direction(Direction::Vertical)
-//                 .constraints(
-//                     [
-//                         Constraint::Percentage(75), // Editor
-//                         Constraint::Percentage(5),  // Status bar
-//                         Constraint::Percentage(20), // Command input
-//                     ]
-//                     .as_ref(),
-//                 )
-//                 .split(frame.size());
-//
-//             // Editor block
-//             let editor = Block::default().title("Forge").borders(Borders::ALL);
-//             frame.render_widget(editor, chunks[0]);
-//
-//             // Status bar block
-//             let status_bar = Block::default().title("Status").borders(Borders::ALL);
-//             frame.render_widget(status_bar, chunks[1]);
-//
-//             // Command input block
-//             let command_input = Block::default().title("Terminal").borders(Borders::ALL);
-//             frame.render_widget(command_input, chunks[2]);
-//         })?;
-//
-//         // Handle input
-//         if let Event::Key(key) = event::read()? {
-//             if key.code == KeyCode::Char('q') {
-//                 break; // Exit on 'q'
-//             }
-//         }
-//     }
-//
-//     disable_raw_mode()
-// }
-//
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::collections::VecDeque;
@@ -222,8 +162,20 @@ impl Editor {
 
     fn paste(&mut self) {
         if let Some(content) = self.clipboard.front() {
-            self.text_buffer[self.cursor_position.0].insert_str(self.cursor_position.1, content);
-            self.cursor_position.1 += content.len();
+            for (i, line) in content.lines().enumerate() {
+                if i == 0 {
+                    // insert first line at cursor position
+                    self.text_buffer[self.cursor_position.0]
+                        .insert_str(self.cursor_position.1, line);
+                    self.cursor_position.1 += line.len();
+                } else {
+                    // Insert subsequent lines as new lines
+                    self.cursor_position.0 += 1;
+                    self.text_buffer
+                        .insert(self.cursor_position.0, line.to_string());
+                    self.cursor_position.1 = line.len();
+                }
+            }
         }
     }
 
@@ -264,6 +216,10 @@ impl Editor {
             }
         }
         highlighted
+            .iter()
+            .enumerate()
+            .map(|(i, line)| format!("{:4} | {}", i + 1, line)) // add line numbers to visual mode
+            .collect()
     }
 }
 
@@ -327,6 +283,10 @@ fn main() -> Result<(), io::Error> {
                         mode = Mode::Command; // Enter Command mode
                         input_buffer.clear();
                     }
+                    KeyCode::Char('/') => {
+                        mode = Mode::Command; // enter command mode for search
+                        input_buffer = "/".to_string(); // Pre-fill input buffer for search
+                    }
                     KeyCode::Esc => {} // Stay in Normal mode
                     KeyCode::Char('v') if key.modifiers == KeyModifiers::CONTROL => {
                         mode = Mode::Visual; // Ctrl+V for Visual mode
@@ -340,17 +300,39 @@ fn main() -> Result<(), io::Error> {
                         editor.move_cursor("top")
                     } // gg for top
                     KeyCode::Char('G') => editor.move_cursor("bottom"), // G for bottom
+                    KeyCode::Home => editor.cursor_position.1 = 0,
+                    KeyCode::End => {
+                        editor.cursor_position.1 =
+                            editor.text_buffer[editor.cursor_position.0].len()
+                    }
                     _ => {}
                 },
                 Mode::Insert => match key.code {
-                    KeyCode::Esc => mode = Mode::Normal,         // Exit Insert mode
-                    KeyCode::Char(c) => editor.insert_text(c),   // Insert Character
-                    KeyCode::Tab => editor.insert_text('\t'),    // Handle Tab Key
-                    KeyCode::Backspace => editor.delete_text(),  // Handle backspace
-                    KeyCode::Enter => editor.insert_newline(),   // Insert a new line
+                    KeyCode::Esc => mode = Mode::Normal, // Exit Insert mode
+                    KeyCode::Home => editor.cursor_position.1 = 0, // Move to line start
+                    KeyCode::End => {
+                        editor.cursor_position.1 =
+                            editor.text_buffer[editor.cursor_position.0].len()
+                    } // Move to line end
+                    KeyCode::Char(c) => {
+                        if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) {
+                            match c {
+                                'v' => {
+                                    // Paste clipboard content
+                                    editor.paste();
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            editor.insert_text(c); // insert character
+                        }
+                    }
+                    KeyCode::Tab => editor.insert_text('\t'), // Handle Tab Key
+                    KeyCode::Backspace => editor.delete_text(), // Handle backspace
+                    KeyCode::Enter => editor.insert_newline(), // Insert a new line
                     KeyCode::Left => editor.move_cursor("left"), // Move cursor left
                     KeyCode::Right => editor.move_cursor("right"), // Move cursor right
-                    KeyCode::Up => editor.move_cursor("up"),     // Move cursor up
+                    KeyCode::Up => editor.move_cursor("up"),  // Move cursor up
                     KeyCode::Down => editor.move_cursor("down"), // Move cursor down
                     _ => {}
                 },
@@ -363,8 +345,13 @@ fn main() -> Result<(), io::Error> {
                         editor.cursor_position.1 =
                             editor.text_buffer[editor.cursor_position.0].len();
                     }
+                    KeyCode::Char('h') | KeyCode::Left => editor.move_cursor("left"),
                     KeyCode::Char('j') | KeyCode::Down => editor.move_cursor("down"),
-                    KeyCode::Char('y') => {
+                    KeyCode::Char('k') | KeyCode::Up => editor.move_cursor("up"),
+                    KeyCode::Char('l') | KeyCode::Right => editor.move_cursor("right"),
+                    KeyCode::Char('y') | KeyCode::Char('c')
+                        if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) =>
+                    {
                         if let Some((start_row, _)) = editor.visual_start {
                             let end_row = editor.cursor_position.0.max(start_row);
                             for row in start_row..=end_row {
@@ -386,7 +373,14 @@ fn main() -> Result<(), io::Error> {
                         editor.clear_visual_mode();
                         mode = Mode::Normal;
                     }
-                    KeyCode::Char('p') => editor.paste(),
+                    KeyCode::Char('p') | KeyCode::Char('v')
+                        if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) =>
+                    {
+                        // Paste clipboard content
+                        editor.paste();
+                        editor.clear_visual_mode();
+                        mode = Mode::Normal;
+                    }
                     _ => {}
                 },
                 Mode::Command => match key.code {
