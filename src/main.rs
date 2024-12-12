@@ -278,6 +278,7 @@ fn main() -> Result<(), io::Error> {
     let mut editor = Editor::new();
 
     loop {
+        terminal.clear()?;
         terminal.draw(|frame| {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -342,11 +343,15 @@ fn main() -> Result<(), io::Error> {
                     _ => {}
                 },
                 Mode::Insert => match key.code {
-                    KeyCode::Esc => mode = Mode::Normal,        // Exit Insert mode
-                    KeyCode::Char(c) => editor.insert_text(c),  // Insert Character
-                    KeyCode::Tab => editor.insert_text('\t'),   // Handle Tab Key
-                    KeyCode::Backspace => editor.delete_text(), // Handle backspace
-                    KeyCode::Enter => editor.insert_newline(),  // Insert a new line
+                    KeyCode::Esc => mode = Mode::Normal,         // Exit Insert mode
+                    KeyCode::Char(c) => editor.insert_text(c),   // Insert Character
+                    KeyCode::Tab => editor.insert_text('\t'),    // Handle Tab Key
+                    KeyCode::Backspace => editor.delete_text(),  // Handle backspace
+                    KeyCode::Enter => editor.insert_newline(),   // Insert a new line
+                    KeyCode::Left => editor.move_cursor("left"), // Move cursor left
+                    KeyCode::Right => editor.move_cursor("right"), // Move cursor right
+                    KeyCode::Up => editor.move_cursor("up"),     // Move cursor up
+                    KeyCode::Down => editor.move_cursor("down"), // Move cursor down
                     _ => {}
                 },
                 Mode::Visual => match key.code {
