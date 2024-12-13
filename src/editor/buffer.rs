@@ -19,6 +19,19 @@ pub enum BufferChange {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VisualMode {
+    Char,   // Standard visual mode
+    Line,   // Line-wise visual mode
+    Block,  // Block-wise visual mode
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SelectionType {
+    Inner,      // Inside delimiters
+    Around,     // Including delimiters
+}
+
 #[derive(Debug)]
 pub struct Buffer {
     content: Vec<String>,             // Lines of text in the buffer
@@ -29,6 +42,9 @@ pub struct Buffer {
     current_match: Option<usize>,     // Index into search_matches
     undo_stack: Vec<(BufferChange, (usize, usize))>, // (change, cursor_position)
     redo_stack: Vec<(BufferChange, (usize, usize))>,
+    visual_mode: Option<VisualMode>,
+    visual_bounds: Option<((usize, usize), (usize, usize))>, // Stored selection bounds
+    selection_type: Option<SelectionType>,
 }
 
 impl Buffer {
@@ -42,6 +58,9 @@ impl Buffer {
             current_match: None,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            visual_mode: None,
+            visual_bounds: None,
+            selection_type: None,
         }
     }
 
@@ -737,6 +756,235 @@ impl Buffer {
             .enumerate()
             .map(|(i, line)| format!("{:4} | {}", i + 1, line))
             .collect()
+    }
+
+    // Visual mode management
+    pub fn toggle_visual_mode(&mut self, mode: VisualMode) {
+        match self.visual_mode {
+            Some(current_mode) if current_mode == mode => {
+                // Toggle off if same mode
+                self.clear_visual();
+            }
+            _ => {
+                // Start new visual mode
+                self.visual_mode = Some(mode);
+                if self.visual_start.is_none() {
+                    self.start_visual();
+                }
+            }
+        }
+    }
+
+    pub fn clear_visual(&mut self) {
+        self.visual_start = None;
+        self.visual_mode = None;
+        self.visual_bounds = None;
+        self.selection_type = None;
+    }
+
+    // Selection operations
+    pub fn delete_selection(&mut self) -> bool {
+        if let Some((start, end)) = self.get_visual_selection() {
+            match self.visual_mode.unwrap_or(VisualMode::Char) {
+                VisualMode::Char => self.delete_char_selection(start, end),
+                VisualMode::Line => self.delete_line_selection(start.0, end.0),
+                VisualMode::Block => self.delete_block_selection(start, end),
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn paste_over_selection(&mut self) {
+        if let Some(content) = self.clipboard.peek() {
+            if let Some((start, end)) = self.get_visual_selection() {
+                // First delete the selection
+                self.delete_selection();
+                
+                // Then paste the content
+                match self.visual_mode.unwrap_or(VisualMode::Char) {
+                    VisualMode::Char => self.insert_at_cursor(content),
+                    VisualMode::Line => self.insert_lines_at(start.0, content),
+                    VisualMode::Block => self.insert_block_at(start, content),
+                }
+            }
+        }
+    }
+
+    // Indentation operations
+    pub fn indent_selection(&mut self, size: usize) {
+        if let Some((start, end)) = self.get_visual_selection() {
+            let start_row = start.0.min(end.0);
+            let end_row = start.0.max(end.0);
+            
+            for row in start_row..=end_row {
+                let spaces = " ".repeat(size);
+                self.content[row].insert_str(0, &spaces);
+            }
+        }
+    }
+
+    pub fn dedent_selection(&mut self, size: usize) {
+        if let Some((start, end)) = self.get_visual_selection() {
+            let start_row = start.0.min(end.0);
+            let end_row = start.0.max(end.0);
+            
+            for row in start_row..=end_row {
+                let whitespace_count = self.content[row]
+                    .chars()
+                    .take_while(|c| c.is_whitespace())
+                    .count();
+                let remove_count = whitespace_count.min(size);
+                if remove_count > 0 {
+                    self.content[row].replace_range(0..remove_count, "");
+                }
+            }
+        }
+    }
+
+    // Text object selection helpers
+    pub fn select_word(&mut self, selection_type: SelectionType) {
+        let (row, col) = self.cursor_position;
+        if let Some(line) = self.content.get(row) {
+            let (start, end) = match selection_type {
+                SelectionType::Inner => self.find_word_bounds(line, col),
+                SelectionType::Around => self.find_word_bounds_with_spaces(line, col),
+            };
+            self.visual_start = Some((row, start));
+            self.cursor_position = (row, end);
+        }
+    }
+
+    pub fn select_paragraph(&mut self, selection_type: SelectionType) {
+        let row = self.cursor_position.0;
+        let start_row = self.find_paragraph_start(row);
+        let end_row = self.find_paragraph_end(row);
+        
+        match selection_type {
+            SelectionType::Inner => {
+                self.visual_start = Some((start_row + 1, 0));
+                self.cursor_position = (end_row - 1, self.content[end_row - 1].len());
+            }
+            SelectionType::Around => {
+                self.visual_start = Some((start_row, 0));
+                self.cursor_position = (end_row, 0);
+            }
+        }
+    }
+
+    // Bracket selection helpers
+    pub fn select_paired_chars(&mut self, open: char, close: char, selection_type: SelectionType) {
+        if let Some((start, end)) = self.find_matching_pair(open, close) {
+            match selection_type {
+                SelectionType::Inner => {
+                    self.visual_start = Some((start.0, start.1 + 1));
+                    self.cursor_position = (end.0, end.1);
+                }
+                SelectionType::Around => {
+                    self.visual_start = Some(start);
+                    self.cursor_position = (end.0, end.1 + 1);
+                }
+            }
+        }
+    }
+
+    // Helper methods for finding text object bounds
+    fn find_word_bounds(&self, line: &str, col: usize) -> (usize, usize) {
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = col;
+        let mut end = col;
+
+        // Move backward to word start
+        while start > 0 && chars[start - 1].is_alphanumeric() {
+            start -= 1;
+        }
+
+        // Move forward to word end
+        while end < chars.len() && chars[end].is_alphanumeric() {
+            end += 1;
+        }
+
+        (start, end)
+    }
+
+    fn find_word_bounds_with_spaces(&self, line: &str, col: usize) -> (usize, usize) {
+        let (start, end) = self.find_word_bounds(line, col);
+        let chars: Vec<char> = line.chars().collect();
+        
+        let mut space_start = start;
+        let mut space_end = end;
+
+        // Include leading spaces
+        while space_start > 0 && chars[space_start - 1].is_whitespace() {
+            space_start -= 1;
+        }
+
+        // Include trailing spaces
+        while space_end < chars.len() && chars[space_end].is_whitespace() {
+            space_end += 1;
+        }
+
+        (space_start, space_end)
+    }
+
+    fn find_paragraph_start(&self, row: usize) -> usize {
+        let mut start = row;
+        while start > 0 && !self.content[start - 1].trim().is_empty() {
+            start -= 1;
+        }
+        start
+    }
+
+    fn find_paragraph_end(&self, row: usize) -> usize {
+        let mut end = row;
+        while end < self.content.len() - 1 && !self.content[end + 1].trim().is_empty() {
+            end += 1;
+        }
+        end + 1
+    }
+
+    fn find_matching_pair(&self, open: char, close: char) -> Option<((usize, usize), (usize, usize))> {
+        let (row, col) = self.cursor_position;
+        
+        // Search for opening character
+        let mut stack = Vec::new();
+        let mut found_start = None;
+        
+        for (curr_row, line) in self.content.iter().enumerate().skip(row) {
+            for (curr_col, c) in line.chars().enumerate() {
+                if curr_row == row && curr_col < col {
+                    continue;
+                }
+                
+                if c == open {
+                    if stack.is_empty() {
+                        found_start = Some((curr_row, curr_col));
+                    }
+                    stack.push((curr_row, curr_col));
+                } else if c == close {
+                    if let Some(start) = stack.pop() {
+                        if stack.is_empty() {
+                            return Some((start, (curr_row, curr_col)));
+                        }
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+
+    // Selection bounds storage for search operations
+    pub fn store_visual_bounds(&mut self) {
+        self.visual_bounds = self.get_visual_selection();
+    }
+
+    pub fn restore_visual_bounds(&mut self) {
+        if let Some((start, end)) = self.visual_bounds {
+            self.visual_start = Some(start);
+            self.cursor_position = end;
+        }
     }
 }
 

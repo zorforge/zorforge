@@ -2,8 +2,8 @@
 pub enum Mode {
     Normal,
     Insert(InsertVariant),
-    Visual,
-    Command,
+    Visual(VisualVariant),
+    Command(CommandType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,6 +21,13 @@ pub enum InsertVariant {
     LineBelow,  // 'o'
     LineAbove,  // 'O'
     Replace,    // 'R'
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VisualVariant {
+    Char,       // Standard visual mode (v)
+    Line,       // Line-wise visual mode (V)
+    Block,      // Block-wise visual mode (Ctrl+V)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,6 +69,19 @@ pub enum ModeTrigger {
     InsertPageDown,     // <PageDown> - Move cursor down one screen
     InsertHome,         // <Home> - Move cursor to start of line
     InsertEnd,          // <End> - Move cursor to end of line
+
+    // Visual mode triggers
+    VisualChar,        // 'v' - Character-wise visual
+    VisualLine,        // 'V' - Line-wise visual
+    VisualBlock,       // Ctrl+v - Block-wise visual
+    VisualToggle,      // Toggle current visual mode
+    VisualInner,       // 'i' for inner text object
+    VisualAround,      // 'a' for around text object
+    VisualIndent,      // '>' indent selection
+    VisualDedent,      // '<' dedent selection
+    VisualYank,        // 'y' in visual mode
+    VisualDelete,      // 'd' in visual mode
+    VisualChange,      // 'c' in visual mode
 }
 
 impl Mode {
@@ -74,7 +94,7 @@ impl Mode {
         match self {
             Mode::Normal => true,
             Mode::Insert(_) => true,
-            Mode::Visual => false, // visual mode has own deletion handling
+            Mode::Visual(_) => false, // visual mode has own deletion handling
             Mode::Command(_) => true, // Allow backspace in command mode
         }
     }
@@ -83,7 +103,7 @@ impl Mode {
     pub fn allows_cut(&self) -> bool {
         match self {
             Mode::Normal => true,
-            Mode::Visual => true, // Visual mode allows cutting selections
+            Mode::Visual(_) => true, // Visual mode allows cutting selections
             _ => false,
         }
     }
@@ -93,7 +113,7 @@ impl Mode {
         match self {
             Mode::Insert(_) => true,
             Mode::Normal => true,
-            Mode::Visual => true,
+            Mode::Visual(_) => true,
             Mode::Command(_) => false,
         }
     }
@@ -103,7 +123,7 @@ impl Mode {
         match self {
             Mode::Insert(_) => true,
             Mode::Normal => true,
-            Mode::Visual => true,
+            Mode::Visual(_) => true,
             Mode::Command(_) => false,
         }
     }
@@ -119,6 +139,24 @@ impl Mode {
     // Method to check if undo/redo is allowed
     pub fn allows_undo(&self) -> bool {
         matches!(self, Mode::Normal)
+    }
+
+    // Method to determine visual mode
+    pub fn is_visual(&self) -> bool {
+        matches!(self, Mode::Visual(_))
+    }
+
+    // Method to determine visual mode variant
+    pub fn get_visual_variant(&self) -> Option<VisualVariant> {
+        match self {
+            Mode::Visual(variant) => Some(*variant),
+            _ => None
+        }
+    }
+
+    // determines the operations permitted in visual mode
+    pub fn allows_visual_operations(&self) -> bool {
+        self.is_visual()
     }
 
     pub fn transition(&self, trigger: ModeTrigger) -> Mode {
@@ -140,6 +178,9 @@ impl Mode {
             (Mode::Normal, ModeTrigger::CutChar) => Mode::Normal,
             (Mode::Normal, ModeTrigger::Undo) => Mode::Normal,
             (Mode::Normal, ModeTrigger::Redo) => Mode::Normal,
+            (Mode::Normal, ModeTrigger::VisualChar) => Mode::Visual(VisualVariant::Char),
+            (Mode::Normal, ModeTrigger::VisualLine) => Mode::Visual(VisualVariant::Line),
+            (Mode::Normal, ModeTrigger::VisualBlock) => Mode::Visual(VisualVariant::Block),
             (Mode::Insert(_), ModeTrigger::DeleteChar) => *self,
             (Mode::Insert(_), ModeTrigger::DeleteForward) => *self,
             (Mode::Insert(_), ModeTrigger::InsertTab) => *self,
@@ -149,9 +190,23 @@ impl Mode {
             (Mode::Insert(_), ModeTrigger::DeleteWord) => *self,
             (Mode::Insert(_), ModeTrigger::DeleteLine) => *self,
             (Mode::Command(_), ModeTrigger::DeleteChar) => *self,
+
+            // Visual mode type transitions
+            (Mode::Visual(_), ModeTrigger::VisualChar) => Mode::Visual(VisualVariant::Char),
+            (Mode::Visual(_), ModeTrigger::VisualLine) => Mode::Visual(VisualVariant::Line),
+            (Mode::Visual(_), ModeTrigger::VisualBlock) => Mode::Visual(VisualVariant::Block),
+            
+            // Visual mode operations (maintain visual mode)
+            (Mode::Visual(v), ModeTrigger::VisualIndent) => Mode::Visual(v),
+            (Mode::Visual(v), ModeTrigger::VisualDedent) => Mode::Visual(v),
+            
+            // Visual mode operations (return to normal mode)
+            (Mode::Visual(_), ModeTrigger::VisualYank) => Mode::Normal,
+            (Mode::Visual(_), ModeTrigger::VisualDelete) => Mode::Normal,
+            (Mode::Visual(_), ModeTrigger::VisualChange) => Mode::Insert(InsertVariant::Insert),
             
             // Command mode specific
-            (Mode::Command, ModeTrigger::Enter) => Mode::Normal,
+            (Mode::Command(t), ModeTrigger::Enter) => Mode::Normal,
             
             // Stay in current mode for unhandled transitions
             (current, _) => *current,
@@ -169,6 +224,11 @@ impl Mode {
                 InsertVariant::LineBelow => "INSERT (BELOW)",
                 InsertVariant::LineAbove => "INSERT (ABOVE)",
                 InsertVariant::Replace => "REPLACE",
+            },
+            Mode::Visual(variant) => match variant {
+                VisualVariant::Char => "VISUAL",
+                VisualVariant::Line => "VISUAL LINE",
+                VisualVariant::Block => "VISUAL BLOCK",
             },
             Mode::Visual => "VISUAL",
             Mode::Command(cmd_type) => match cmd_type {
@@ -188,9 +248,11 @@ impl Mode {
 
     pub fn cursor_style(&self) -> CursorStyle {
         match self {
+            Mode::Visual(_) => CursorStyle::Block,
+            // ... rest of existing cursor styles ...
             Mode::Insert(InsertVariant::Replace) => CursorStyle::Block,
             Mode::Insert(_) => CursorStyle::Line,
-            Mode::Command => CursorStyle::Line,
+            Mode::Command(_) => CursorStyle::Line,
             _ => CursorStyle::Block,
         }
     }

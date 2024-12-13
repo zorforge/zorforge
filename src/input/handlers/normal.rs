@@ -1,56 +1,55 @@
 // src/input/handlers/normal.rs
-use crossterm::event::{KeyCode, KeyModifiers};
+use std::io;
+use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use crate::editor::Editor;
-use crate::editor::mode::{Mode, ModeTrigger};
+use crate::editor::mode::{Mode, ModeTrigger, InsertVariant, CommandType};
 
 pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
     match key.code {
         // Mode transitions
         KeyCode::Char('i') => {
-            editor.set_mode(Mode::Insert(InsertVariant::Insert));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertNormal));
         }
         KeyCode::Char('a') => {
             editor.buffer.prepare_append();
-            editor.set_mode(Mode::Insert(InsertVariant::Append));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertAppend));
         }
         KeyCode::Char('A') => {
             editor.buffer.prepare_append_end_of_line();
-            editor.set_mode(Mode::Insert(InsertVariant::AppendEnd));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertAppendEnd));
         }
         KeyCode::Char('I') => {
             editor.buffer.prepare_insert_start_of_line();
-            editor.set_mode(Mode::Insert(InsertVariant::LineStart));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertLineStart));
         }
         KeyCode::Char('o') => {
             editor.buffer.insert_line_below();
-            editor.set_mode(Mode::Insert(InsertVariant::LineBelow));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertLineBelow));
         }
         KeyCode::Char('O') => {
             editor.buffer.insert_line_above();
-            editor.set_mode(Mode::Insert(InsertVariant::LineAbove));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertLineAbove));
         }
         KeyCode::Char('R') => {
-            editor.set_mode(Mode::Insert(InsertVariant::Replace));
+            editor.set_mode(editor.mode.transition(ModeTrigger::InsertReplace));
         }
         KeyCode::Char('v') => {
             editor.buffer.start_visual();
-            editor.set_mode(Mode::Visual);
+            editor.set_mode(editor.mode.transition(ModeTrigger::VisualMode));
         }
         KeyCode::Char(':') => {
-            editor.set_mode(Mode::Command(CommandType::Regular));
+            editor.set_mode(editor.mode.transition(ModeTrigger::CommandMode));
         }
         KeyCode::Char('/') => {
-            editor.set_mode(Mode::Command(CommandType::Search));
+            editor.set_mode(editor.mode.transition(ModeTrigger::SearchMode));
         }
-        KeyCode::Char('u') => {
-            if editor.mode.allows_undo() {
-                editor.buffer.undo();
-            }
+
+        // Undo/Redo
+        KeyCode::Char('u') if editor.mode.allows_undo() => {
+            editor.buffer.undo();
         }
-        KeyCode::Char('r') if key.modifiers == KeyModifiers::CONTROL => {
-            if editor.mode.allows_undo() {
-                editor.buffer.redo();
-            }
+        KeyCode::Char('r') if key.modifiers == KeyModifiers::CONTROL && editor.mode.allows_undo() => {
+            editor.buffer.redo();
         }
 
         // Movement keys (Vim style)
@@ -63,13 +62,15 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
         KeyCode::Char('g') if key.modifiers == KeyModifiers::NONE => editor.buffer.move_cursor("top"),
         KeyCode::Char('G') => editor.buffer.move_cursor("bottom"),
 
-        // Movement keys (arrows, home, end)
+        // Movement keys (Modern)
         KeyCode::Left => editor.buffer.move_cursor("left"),
         KeyCode::Right => editor.buffer.move_cursor("right"),
         KeyCode::Up => editor.buffer.move_cursor("up"),
         KeyCode::Down => editor.buffer.move_cursor("down"),
         KeyCode::Home => editor.buffer.move_cursor("line_start"),
         KeyCode::End => editor.buffer.move_cursor("line_end"),
+        KeyCode::PageUp => editor.buffer.move_page_up(),
+        KeyCode::PageDown => editor.buffer.move_page_down(),
 
         // Clipboard operations
         KeyCode::Char('y') => editor.buffer.yank_line(),
@@ -81,15 +82,16 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
             editor.buffer.paste()
         }
 
-        KeyCode::Char('x') => {
-            editor.buffer.cut_char()
+        // Cut/Delete operations
+        KeyCode::Char('x') if editor.mode.allows_cut() => {
+            editor.buffer.cut_char();
         }
-
-        // Deletion operations
-        KeyCode::Delete => {
-            editor.buffer.delete_char()
+        KeyCode::Delete if editor.mode.allows_deletion() => {
+            editor.buffer.delete_char_forward();
         }
-        KeyCode::Char('d') => editor.buffer.delete_line(),
+        KeyCode::Char('d') if editor.mode.allows_deletion() => {
+            editor.buffer.delete_line();
+        }
 
         _ => {}
     }
