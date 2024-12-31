@@ -551,12 +551,27 @@ impl Buffer {
     }
 
     // Buffer content access
+    pub fn mark_lines_dirty(&mut self, start: usize, end: usize) {
+        for line_num in start..=end {
+            self.dirty_lines.insert(line_num);
+        }
+    }
+
     pub fn get_line(&self, index: usize) -> Option<&String> {
         self.content.get(index)
     }
 
     pub fn get_current_line(&self) -> Option<&String> {
         self.content.get(self.cursor_position.0)
+    }
+
+    pub fn get_lines(&self, range: Range<usize>) -> Vec<&str> {
+        self.content
+            .iter()
+            .skip(range.start)
+            .take(range.end - range.start)
+            .map(|s| s.as_str())
+            .collect()
     }
 
     pub fn get_content(&self) -> &Vec<String> {
@@ -576,6 +591,15 @@ impl Buffer {
     pub fn replace_line(&mut self, row: usize, content: String) {
         if row < self.content.len() {
             self.content[row] = content;
+        }
+    }
+
+    // Viewport management
+    pub fn get_viewport(&self) -> Viewport {
+        Viewport {
+            start: self.viewport_start,
+            height: self.viewport_height,
+            width: self.viewport_width,
         }
     }
 
