@@ -16,6 +16,7 @@ crossterm = "0.28.1"                  # For terminal control
 # Directory and File Handling
 walkdir = "2.5.0"                     # Traverse directories for file tree
 fs_extra = "1.3.0"                    # File system utilities (copy, move, etc...)
+dirs = "5.0.1"                        # low level library for varying platforms
 
 # Syntax Highlighting
 tree-sitter = "0.24.4"                # For syntax parsing
@@ -35,6 +36,7 @@ tokio = { version = "1.39.0", features = ["full"] }  # Async runtime for LSP int
 log = "0.4.18"                        # Logging support
 env_logger = "0.11.5"                 # Environment-based logger
 simple-logging = "2.0.2"              # log facade
+thiserror = "2.0.9"                   # derive macro for std::error::Error trait
 
 # Synchronization Primitives
 parking_lot = "0.12.3"
