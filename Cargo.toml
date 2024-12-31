@@ -34,6 +34,7 @@ tokio = { version = "1.39.0", features = ["full"] }  # Async runtime for LSP int
 # Utilities
 log = "0.4.18"                        # Logging support
 env_logger = "0.11.5"                 # Environment-based logger
+simple-logging = "2.0.2"              # log facade
 
 # Synchronization Primitives
 parking_lot = "0.12.3"
