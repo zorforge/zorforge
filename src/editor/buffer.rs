@@ -1,4 +1,9 @@
 // src/editor/buffer.rs
+use std::ops::Range;
+use std::collections::HashSet;
+use super::clipboard::Clipboard;
+use super::viewport::Viewport;
+
 #[derive(Clone, Debug)]
 pub enum BufferChange {
     Insert {
@@ -45,6 +50,9 @@ pub struct Buffer {
     visual_mode: Option<VisualMode>,
     visual_bounds: Option<((usize, usize), (usize, usize))>, // Stored selection bounds
     selection_type: Option<SelectionType>,
+    dirty_lines: std::collections::HashSet<usize>,
+    clipboard: Option<Clipboard>,
+    viewport: Viewport,
 }
 
 impl Buffer {
@@ -61,6 +69,13 @@ impl Buffer {
             visual_mode: None,
             visual_bounds: None,
             selection_type: None,
+            dirty_lines: HashSet::new(),
+            clipboard: Some(Clipboard::new()),
+            viewport: Viewport {
+                start: 0,
+                height: 20,
+                width: 80,
+            },
         }
     }
 
@@ -286,7 +301,7 @@ impl Buffer {
     
     // Handle 'a' - appen after cursor
     pub fn prepare_append(&mut self) {
-        if !self.cotnent[self.cursor_position.0].is_empty() {
+        if !self.content[self.cursor_position.0].is_empty() {
             self.move_cursor("right");
         }
     }
@@ -310,14 +325,14 @@ impl Buffer {
     pub fn insert_line_below(&mut self) {
         let current_indent = self.get_line_indentation(self.cursor_position.0);
         self.cursor_position.0 += 1;
-        self.content.insert(self.cursor_position.0, current_indent);
+        self.content.insert(self.cursor_position.0, current_indent.clone());
         self.cursor_position.1 = current_indent.len();
     }
 
     // Handle 'O'- open line above
     pub fn insert_line_above(&mut self) {
         let current_indent = self.get_line_indentation(self.cursor_position.0);
-        self.content.insert(self.cursor_position.0, current_indent);
+        self.content.insert(self.cursor_position.0, current_indent.clone());
         self.cursor_position.1 = current_indent.len();
     }
 
@@ -381,7 +396,7 @@ impl Buffer {
     // === Enhanced Text Operations ===
 
     // Insert character with replace mode support
-    pub fn inser_char_replace(&mut self, c: char) {
+    pub fn insert_char_replace(&mut self, c: char) {
         let current_line = &mut self.content[self.cursor_position.0];
         if self.cursor_position.1 < current_line.len() {
             // Replace existing character
@@ -507,12 +522,12 @@ impl Buffer {
     }
 
     // Visual selection methods
-    pub fn start_visual(&mut self) {
-        self.visual_start = Some(self.cursor_position);
+    pub fn set_selection_type(&mut self, selection_type: SelectionType) {
+        self.selection_type = Some(selection_type)
     }
 
-    pub fn clear_visual(&mut self) {
-        self.visual_start = None;
+    pub fn start_visual(&mut self) {
+        self.visual_start = Some(self.cursor_position);
     }
 
     pub fn get_visual_selection(&self) -> Option<((usize, usize), (usize, usize))> {
@@ -595,12 +610,8 @@ impl Buffer {
     }
 
     // Viewport management
-    pub fn get_viewport(&self) -> Viewport {
-        Viewport {
-            start: self.viewport_start,
-            height: self.viewport_height,
-            width: self.viewport_width,
-        }
+    pub fn get_viewport(&self) -> &Viewport {
+        &self.viewport
     }
 
     // Search-related methods
@@ -690,7 +701,7 @@ impl Buffer {
             for &(_, start_col, end_col) in matches_in_line {
                 let start_idx = start_col + offset;
                 let end_idx = end_col + offset;
-                let highligh = if Some(start_col) == self.current_match.map(|i| self.matches[i].1) {
+                let highlight = if Some(start_col) == self.current_match.map(|i| self.search_matches[i].1) {
                     "\x1b[43m" // Yellow background for current match
                 } else {
                     "\x1b[42m" // Green background for other matches
@@ -807,6 +818,50 @@ impl Buffer {
     }
 
     // Selection operations
+    fn delete_char_selection(&mut self, start: (usize, usize), end: (usize, usize)) {
+        let start_row = start.0.min(end.0);
+        let end_row = start.0.max(end.0);
+        let start_col = start.1.min(end.1);
+        let end_col = start.1.max(end.1);
+
+        if start_row == end_row {
+            // Single line selection
+            let line = &mut self.content[start_row];
+            line.replace_range(start_col..end_col, "");
+            self.cursor_position = (start_row, start_col);
+        }
+    }
+
+    fn delete_line_selection(&mut self, start_row: usize, end_row: usize) {
+        let start = start_row.min(end_row);
+        let end = start_row.max(end_row);
+
+        // Remove lines in the range
+        self.content.drain(start..=end);
+
+        // Adjust cursor position
+        self.cursor_position.0 = start.min(self.content.len() - 1);
+        self.cursor_position.1 = 0;
+    }
+
+    fn delete_block_selection(&mut self, start: (usize, usize), end: (usize, usize)) {
+        let start_row = start.0.min(end.0);
+        let end_row = start.0.max(end.0);
+        let start_col = start.1.min(end.1);
+        let end_col = start.1.max(end.1);
+
+        // Delete block-wise selection
+        for row in start_row..=end_row {
+            let line = &mut self.content[row];
+            if start_col < line.len() {
+                let actual_end_col = end_col.min(line.len());
+                line.replace_range(start_col..actual_end_col, "");
+            }
+        }
+
+        self.cursor_position = (start_row, start_col);
+    }
+
     pub fn delete_selection(&mut self) -> bool {
         if let Some((start, end)) = self.get_visual_selection() {
             match self.visual_mode.unwrap_or(VisualMode::Char) {
@@ -820,17 +875,89 @@ impl Buffer {
         }
     }
 
-    pub fn paste_over_selection(&mut self) {
-        if let Some(content) = self.clipboard.peek() {
-            if let Some((start, end)) = self.get_visual_selection() {
-                // First delete the selection
-                self.delete_selection();
+    fn insert_at_cursor(&mut self, content: &str) {
+        let current_line = &mut self.content[self.cursor_position.0];
+        current_line.insert_str(self.cursor_position.1, content);
+        self.cursor_position.1 += content.len();
+    }
+
+    fn insert_lines_at(&mut self, row: usize, content: &str) {
+        // Split content into lines and insert them
+        let lines: Vec<&str> = content.split('\n').collect();
+        for (i, line) in lines.iter().enumerate() {
+            self.content.insert(row + i, line.to_string());
+        }
+        self.cursor_position = (row + lines.len() - 1, 0);
+    }
+
+    fn insert_block_at(&mut self, start: (usize, usize), content: &str) {
+        let lines: Vec<&str> = content.split('\n').collect();
+        let start_row = start.0;
+        let start_col = start.1;
+
+        for (i, line) in lines.iter().enumerate() {
+            let row = start_row + i;
+            if row < self.content.len() {
+                let current_line = &mut self.content[row];
                 
-                // Then paste the content
-                match self.visual_mode.unwrap_or(VisualMode::Char) {
-                    VisualMode::Char => self.insert_at_cursor(content),
-                    VisualMode::Line => self.insert_lines_at(start.0, content),
-                    VisualMode::Block => self.insert_block_at(start, content),
+                // Ensure the line is long enough to insert at start_col
+                if current_line.len() < start_col {
+                    current_line.push_str(&" ".repeat(start_col - current_line.len()));
+                }
+
+                current_line.insert_str(start_col, line);
+            }
+        }
+
+        self.cursor_position = (start_row, start_col);
+    }
+
+    pub fn paste_over_selection(&mut self) {
+        // First, extract the content and visual selection before any mutations
+        let content = self.clipboard.as_ref().and_then(|c| c.peek().cloned());
+        let visual_selection = self.get_visual_selection();
+        let visual_mode = self.visual_mode.unwrap_or(VisualMode::Char);
+    
+        // Now perform mutations
+        if let (Some(content), Some((start, end))) = (content, visual_selection) {
+            // Delete the selection
+            self.delete_selection();
+            
+            // Then paste the content
+            match visual_mode {
+                VisualMode::Char => {
+                    let current_line = &mut self.content[self.cursor_position.0];
+                    current_line.insert_str(self.cursor_position.1, &content);
+                    self.cursor_position.1 += content.len();
+                },
+                VisualMode::Line => {
+                    // Split content into lines and insert at the start row
+                    let lines: Vec<&str> = content.split('\n').collect();
+                    for (i, line) in lines.iter().enumerate() {
+                        self.content.insert(start.0 + i, line.to_string());
+                    }
+                    self.cursor_position = (start.0 + lines.len() - 1, 0);
+                },
+                VisualMode::Block => {
+                    let lines: Vec<&str> = content.split('\n').collect();
+                    let start_row = start.0;
+                    let start_col = start.1;
+    
+                    for (i, line) in lines.iter().enumerate() {
+                        let row = start_row + i;
+                        if row < self.content.len() {
+                            let current_line = &mut self.content[row];
+                            
+                            // Ensure the line is long enough to insert at start_col
+                            if current_line.len() < start_col {
+                                current_line.push_str(&" ".repeat(start_col - current_line.len()));
+                            }
+    
+                            current_line.insert_str(start_col, line);
+                        }
+                    }
+    
+                    self.cursor_position = (start_row, start_col);
                 }
             }
         }

@@ -2,7 +2,8 @@
 use std::io;
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use crate::editor::Editor;
-use crate::editor::mode::{Mode, ModeTrigger};
+use crate::editor::mode::{Mode, ModeTrigger, InsertVariant, CommandType};
+use crate::editor::buffer::{SelectionType, VisualMode};
 
 pub fn handle_visual_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
     match key.code {
@@ -130,13 +131,13 @@ fn handle_text_object(editor: &mut Editor, c: char, selection_type: SelectionTyp
     match c {
         'w' => editor.buffer.select_word(selection_type),
         'p' => editor.buffer.select_paragraph(selection_type),
-        '(' | ')' | 'b' => editor.buffer.select_parentheses(selection_type),
-        '[' | ']' => editor.buffer.select_brackets(selection_type),
-        '{' | '}' | 'B' => editor.buffer.select_braces(selection_type),
-        '<' | '>' => editor.buffer.select_angle_brackets(selection_type),
-        '\'' => editor.buffer.select_single_quotes(selection_type),
-        '"' => editor.buffer.select_double_quotes(selection_type),
-        '`' => editor.buffer.select_backticks(selection_type),
+        '(' | ')' | 'b' => editor.buffer.select_paired_chars('(', ')', selection_type),
+        '[' | ']' => editor.buffer.select_paired_chars('[', ']', selection_type),
+        '{' | '}' | 'B' => editor.buffer.select_paired_chars('{', '}', selection_type),
+        '<' | '>' => editor.buffer.select_paired_chars('<', '>', selection_type),
+        '\'' => editor.buffer.select_paired_chars('\'', '\'', selection_type),
+        '"' => editor.buffer.select_paired_chars('"', '"', selection_type),
+        '`' => editor.buffer.select_paired_chars('`', '`', selection_type),
         _ => {}
     }
 }

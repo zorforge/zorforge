@@ -1,6 +1,6 @@
 // src/main.rs
 use std::{
-    io::{self, stdout, Write},
+    io::{self, stdout},
     path::PathBuf,
     time::Duration,
 };
@@ -16,11 +16,13 @@ mod ui;
 mod input;
 mod config;
 mod utils;
+mod splash;
+mod cli;
 
 use editor::{Editor, Mode};
-use ui::renderer::Renderer;
+use ui::Renderer;
 use input::handle_input;
-use config::Config;
+use config::EditorConfig;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -52,11 +54,11 @@ fn main() -> io::Result<()> {
 
     // Load configuration
     let config = match &args.config {
-        Some(path) => Config::load_from_file(path),
-        None => Config::load_default(),
+        Some(path) => EditorConfig::load_from_file(path),
+        None => EditorConfig::load_default(),
     }.unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load config: {}", e);
-        Config::default()
+        EditorConfig::default()
     });
 
     // Initialize editor
@@ -150,7 +152,7 @@ fn handle_key_event(editor: &mut Editor, key: KeyEvent) -> io::Result<bool> {
 }
 
 fn handle_mouse_event(editor: &mut Editor, event: event::MouseEvent) {
-    use event::MouseEventKind::*;
+    use crossterm::event::MouseEventKind::*;
 
     match event.kind {
         Down(button) => {

@@ -189,6 +189,27 @@ impl EditorConfig {
             })
             .ok_or(ConfigError::NoConfigDir)
     }
+
+    pub fn load_from_file(path: &PathBuf) -> Result<Self, ConfigError> {
+        let contents = std::fs::read_to_string(path)?;
+        Ok(toml::from_str(&contents)?)
+    }
+
+    pub fn load_default() -> Result<Self, ConfigError> {
+        Ok(Self::default())
+    }
+
+    pub fn default() -> Self {
+        Self {
+            tab_size: 4,
+            theme: Theme::default(),
+            line_numbers: true,
+            auto_indent: true,
+            highlight_current_line: true,
+            show_whitespace: false,
+            word_wrap: true,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

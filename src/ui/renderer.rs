@@ -5,7 +5,7 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     queue,
-    style::{self, Color, Colors, Print, SetColors, Stylize},
+    style::{self, Attribute, Color, Colors, Print, SetColors, Stylize},
     terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use parking_lot::RwLock;
@@ -51,7 +51,7 @@ enum Region {
 struct Style {
     foreground: Option<Color>,
     background: Option<Color>,
-    modifiers: HashSet<Modifier>,
+    attributes: Vec<Attribute>,
 }
 
 impl Renderer {
@@ -203,7 +203,7 @@ impl Renderer {
                 )?;
 
                 // Apply syntax highlighting and render line content
-                let rendered = self.highlight_line(line, editor.mode());
+                let rendered = self.highlight_line(line, *editor.mode());
                 queue!(writer, Print(rendered))?;
 
                 // Clear to end of line

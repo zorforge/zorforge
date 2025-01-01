@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(clipboard.len(), 2);
         assert_eq!(clipboard.peek(), Some(&"third".to_string()));
         assert_eq!(clipboard.peek_at(1), Some(&"second".to_string()));
-        assert_eq!(Clipboard.peek_at(2), None);
+        assert_eq!(clipboard.peek_at(2), None);
     }
 
     #[test]

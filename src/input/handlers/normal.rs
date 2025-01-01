@@ -3,6 +3,7 @@ use std::io;
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use crate::editor::Editor;
 use crate::editor::mode::{Mode, ModeTrigger, InsertVariant, CommandType};
+use crate::editor::buffer::{Buffer, VisualMode};
 
 pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
     match key.code {
@@ -35,13 +36,20 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
         }
         KeyCode::Char('v') => {
             editor.buffer.start_visual();
-            editor.set_mode(editor.mode.transition(ModeTrigger::VisualMode));
+            editor.set_mode(editor.mode.transition(ModeTrigger::VisualChar));
+        }
+        KeyCode::Char('V') => {
+            editor.buffer.start_visual();
+            editor.set_mode(editor.mode.transition(ModeTrigger::VisualLine));
         }
         KeyCode::Char(':') => {
             editor.set_mode(editor.mode.transition(ModeTrigger::CommandMode));
         }
         KeyCode::Char('/') => {
-            editor.set_mode(editor.mode.transition(ModeTrigger::SearchMode));
+            editor.set_mode(editor.mode.transition(ModeTrigger::SearchForward));
+        }
+        KeyCode::Char('?') => {
+            editor.set_mode(editor.mode.transition(ModeTrigger::SearchBackward));
         }
 
         // Undo/Redo
@@ -73,10 +81,10 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
         KeyCode::PageDown => editor.buffer.move_page_down(),
 
         // Clipboard operations
-        KeyCode::Char('y') => editor.buffer.yank_line(),
+        KeyCode::Char('y') => editor.buffer.yank(),
         KeyCode::Char('p') => editor.buffer.paste(),
         KeyCode::Char('c') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
-            editor.buffer.yank_line()
+            editor.buffer.yank()
         }
         KeyCode::Char('v') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
             editor.buffer.paste()
