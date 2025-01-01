@@ -81,25 +81,30 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
         KeyCode::PageDown => editor.buffer.move_page_down(),
 
         // Clipboard operations
-        KeyCode::Char('y') => editor.buffer.yank(),
-        KeyCode::Char('p') => editor.buffer.paste(),
+        KeyCode::Char('y') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
+            editor.buffer.yank()
+        },
+        KeyCode::Char('p') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
+            editor.buffer.paste()
+        },
         KeyCode::Char('c') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
             editor.buffer.yank()
-        }
+        },
         KeyCode::Char('v') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
             editor.buffer.paste()
-        }
-
+        },
         // Cut/Delete operations
         KeyCode::Char('x') if editor.mode.allows_cut() => {
             editor.buffer.cut_char();
-        }
+        },
         KeyCode::Delete if editor.mode.allows_deletion() => {
             editor.buffer.delete_char_forward();
-        }
+        },
         KeyCode::Char('d') if editor.mode.allows_deletion() => {
             editor.buffer.delete_line();
-        }
+        },
+        KeyCode::Char('y') => editor.buffer.yank(),
+        KeyCode::Char('p') => editor.buffer.paste(),
 
         _ => {}
     }

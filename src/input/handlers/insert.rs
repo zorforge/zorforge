@@ -8,7 +8,7 @@ pub struct InsertHandler;
 
 impl InsertHandler {
     /// Handler keypress event in insert mode
-    pub fn handle(editor: &mut Editor, Key: KeyEvent) -> io::Result<()> {
+    pub fn handle(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
         match key.code {
             // Mode Transitions
             KeyCode::Esc => {

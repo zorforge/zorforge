@@ -1,4 +1,20 @@
 // src/ui/windows/mod.rs
+
+enum SplitDirection {
+    Vertical,
+    Horizontal,
+}
+
+struct Window {
+    // TODO: implement new window
+    pub fn new() -> Self {
+        // implement
+    }
+
+    pub fn new_terminal() -> Self {
+        // implement
+    }
+}
 pub struct WindowManager {
     windows: Vec<Window>,
     active_window: usize,
@@ -21,6 +37,10 @@ impl WindowManager {
         }
 
         self.windows.push(new_window);
+    }
+
+    pub fn find_terminal_window(&mut self) -> Option<usize> {
+        // implement
     }
 
     // Toggle terminal

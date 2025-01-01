@@ -466,6 +466,40 @@ impl Buffer {
         }
     }
 
+    pub fn delete_char_forward(&mut self) {
+        if self.cursor_position.0 >= self.content.len() {
+            return;
+        }
+    
+        let current_row = self.cursor_position.0;
+        let current_col = self.cursor_position.1;
+        let line_length = self.content[current_row].len();
+    
+        if current_col < line_length {
+            // Delete character at cursor position
+            let deleted_char = self.content[current_row].remove(current_col);
+            
+            let change = BufferChange::Delete {
+                position: (current_row, current_col),
+                content: deleted_char.to_string(),
+            };
+            
+            self.record_change(change);
+        } else if current_row < self.content.len() - 1 {
+            // If at end of line, join with next line
+            let next_line = self.content.remove(current_row + 1);
+            
+            let change = BufferChange::DeleteLine {
+                position: current_row + 1,
+                content: next_line.clone(),
+            };
+            
+            self.content[current_row].push_str(&next_line);
+            
+            self.record_change(change);
+        }
+    }
+
     pub fn cut_char(&mut self) {
         if let Some(line) = self.content.get_mut(self.cursor_position.0) {
             if self.cursor_position.1 < line.len() {
@@ -480,6 +514,42 @@ impl Buffer {
                 // At end of line, joing with next line if it exists
                 let next_line = self.content.remove(self.cursor_position.0 + 1);
                 self.content[self.cursor_position.0].push_str(&next_line);
+            }
+        }
+    }
+
+    pub fn yank(&mut self) {
+        // Yank the current line
+        if let Some(line) = self.get_current_line().cloned() {
+            if let Some(clipboard) = self.clipboard.as_mut() {
+                clipboard.yank(line.clone());
+            }
+        }
+    }
+
+    pub fn paste(&mut self) {
+        // Paste content from clipboard
+        if let Some(clipboard) = &mut self.clipboard {
+            if let Some(content) = clipboard.peek().cloned() {
+                // Check if we're dealing with multiline content
+                let lines: Vec<&str> = content.lines().collect();
+                
+                if lines.len() > 1 {
+                    // Multiline paste
+                    for (i, line) in lines.iter().enumerate() {
+                        if i == 0 {
+                            // Insert first line at current cursor position
+                            self.insert_text(line);
+                        } else {
+                            // Insert subsequent lines on new lines
+                            self.insert_newline_auto_indent();
+                            self.insert_text(line);
+                        }
+                    }
+                } else {
+                    // Single line paste
+                    self.insert_text(&content);
+                }
             }
         }
     }
@@ -875,13 +945,13 @@ impl Buffer {
         }
     }
 
-    fn insert_at_cursor(&mut self, content: &str) {
+    pub fn insert_at_cursor(&mut self, content: &str) {
         let current_line = &mut self.content[self.cursor_position.0];
         current_line.insert_str(self.cursor_position.1, content);
         self.cursor_position.1 += content.len();
     }
 
-    fn insert_lines_at(&mut self, row: usize, content: &str) {
+    pub fn insert_lines_at(&mut self, row: usize, content: &str) {
         // Split content into lines and insert them
         let lines: Vec<&str> = content.split('\n').collect();
         for (i, line) in lines.iter().enumerate() {
@@ -890,7 +960,7 @@ impl Buffer {
         self.cursor_position = (row + lines.len() - 1, 0);
     }
 
-    fn insert_block_at(&mut self, start: (usize, usize), content: &str) {
+    pub fn insert_block_at(&mut self, start: (usize, usize), content: &str) {
         let lines: Vec<&str> = content.split('\n').collect();
         let start_row = start.0;
         let start_col = start.1;
