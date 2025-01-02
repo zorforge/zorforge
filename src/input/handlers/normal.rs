@@ -4,8 +4,15 @@ use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use crate::editor::Editor;
 use crate::editor::mode::{Mode, ModeTrigger, InsertVariant, CommandType};
 use crate::editor::buffer::{Buffer, VisualMode};
+use crate::input::global_handlers::GlobalKeyHandler;
 
 pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
+    // Check for global handlers
+    if GlobalKeyHandler::handle(editor, key)? {
+        return Ok(());
+    }
+
+    // handle normal-mode specific calls
     match key.code {
         // Mode transitions
         KeyCode::Char('i') => {
@@ -86,16 +93,6 @@ pub fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) -> io::Result<()> 
         },
         KeyCode::Char('p') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
             editor.buffer.paste()
-        },
-        KeyCode::Char('c') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
-            editor.buffer.yank()
-        },
-        KeyCode::Char('v') if key.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
-            editor.buffer.paste()
-        },
-        // Cut/Delete operations
-        KeyCode::Char('x') if editor.mode.allows_cut() => {
-            editor.buffer.cut_char();
         },
         KeyCode::Delete if editor.mode.allows_deletion() => {
             editor.buffer.delete_char_forward();

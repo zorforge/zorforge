@@ -20,6 +20,9 @@ pub struct Editor {
     pub mode: Mode,
     pub config: EditorConfig,
     is_readonly: bool,
+    command_buffer: Option<String>,
+    file_path: Option<PathBuf>,
+    message: Option<String>,
 }
 
 impl Editor {
@@ -30,6 +33,9 @@ impl Editor {
             mode: Mode::Normal,
             config,
             is_readonly: false,
+            command_buffer: None,
+            file_path: None,
+            message: None,
         }
     }
 
@@ -41,19 +47,57 @@ impl Editor {
         self.mode = mode;
     }
 
-    pub fn has_unsaved_changes(&self) -> bool {
-        // TODO: Implement actual change tracking
-        false
+    // Update save_buffer to mark changes as saved
+    pub fn save_buffer(&mut self) -> io::Result<()> {
+        if let Some(path) = &self.file_path {
+            let content = self.buffer.get_content()
+                .join("\n");
+            std::fs::write(path, content)?;
+            self.buffer.mark_saved();  // Mark current state as saved
+            self.show_message(&format!("Wrote {}", path.display()));
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                "No file name specified (use :w <path>)",
+            ))
+        }
     }
 
+    // Update has_unsaved_changes to use buffer's tracking
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.buffer.has_unsaved_changes()
+    }
+
+    // Add method to save with a specific path
+    pub fn save_buffer_as(&mut self, path: PathBuf) -> io::Result<()> {
+        self.file_path = Some(path);
+        self.save_buffer()
+    }
     pub fn show_message(&mut self, msg: &str) {
-        // TODO: Implement message display
-        println!("{}", msg);
+        self.message = Some(msg.to_string());
+    }
+
+    pub fn get_message(&self) -> Option<&String> {
+        self.message.as_ref()
+    }
+
+    pub fn clear_message(&mut self) {
+        self.message = None;
+    }
+
+    pub fn file_info(&self) -> String {
+        match &self.file_path {
+            Some(path) => path.display().to_string(),
+            None => String::from("[No Name]")
+        }
     }
 
     pub fn command_line_content(&self) -> String {
-        // TODO: Implement command line content
-        String::new()
+        match &self.command_buffer {
+            Some(buffer) => buffer.clone(),
+            None => String::new(),
+        }
     }
 
     pub fn handle_mouse_click(&mut self, col: usize, row: usize, _button: MouseButton) {
@@ -61,7 +105,13 @@ impl Editor {
     }
 
     pub fn handle_mouse_drag(&mut self, col: usize, row: usize, _button: MouseButton) {
-        // TODO: Implement drag selection
+        // If we're not already in visual mode, enter it and mark selection start
+        if !self.mode.is_visual() {
+            self.buffer.start_visual();
+            self.mode = Mode::Visual(VisualVariant::Char);
+        }
+        
+        // Update cursor position which will update the selection end
         self.buffer.set_cursor_position(row, col);
     }
 
@@ -114,8 +164,24 @@ impl Editor {
         format!("{}:{}", row + 1, col + 1)
     }
 
-    pub fn file_info(&self) -> String {
-        // TODO: Implement file info
-        String::from("[No Name]")
+    pub fn append_to_command(&mut self, c: char) {
+        if let Some(buffer) = &mut self.command_buffer {
+            buffer.push(c);
+        } else {
+            self.command_buffer = Some(String::from(c));
+        }
+    }
+
+    pub fn delete_from_command(&mut self) {
+        if let Some(buffer) = &mut self.command_buffer {
+            buffer.pop();
+            if buffer.is_empty() {
+                self.command_buffer = None;
+            }
+        }
+    }
+
+    pub fn clear_command(&mut self) {
+        self.command_buffer = None;
     }
 }

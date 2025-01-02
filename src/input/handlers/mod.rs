@@ -7,6 +7,7 @@ mod visual;
 use std::io;
 use crossterm::event::KeyEvent;
 use crate::editor::Editor;
+use crate::editor::Mode;
 
 pub fn handle_input(editor: &mut Editor, key: KeyEvent) -> io::Result<()> {
     match editor.mode() {

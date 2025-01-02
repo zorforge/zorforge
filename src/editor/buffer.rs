@@ -45,14 +45,23 @@ pub struct Buffer {
     tab_size: usize,                  // Tab size in spaces
     search_matches: Vec<(usize, usize, usize)>, // (row, start_col, end_col)
     current_match: Option<usize>,     // Index into search_matches
-    undo_stack: Vec<(BufferChange, (usize, usize))>, // (change, cursor_position)
-    redo_stack: Vec<(BufferChange, (usize, usize))>,
+    undo_stack: Vec<BufferChangeRecord>, // (change, cursor_position)
+    redo_stack: Vec<BufferChangeRecord>,
     visual_mode: Option<VisualMode>,
     visual_bounds: Option<((usize, usize), (usize, usize))>, // Stored selection bounds
     selection_type: Option<SelectionType>,
     dirty_lines: std::collections::HashSet<usize>,
     clipboard: Option<Clipboard>,
     viewport: Viewport,
+    last_save_change_id: usize, // ID of the last change when saved
+    change_counter: usize, // Monotonically increase change ID
+}
+
+#[derive(Clone, Debug)]
+struct BufferChangeRecord {
+    change: BufferChange,
+    cursor: (usize, usize),
+    change_id: usize,
 }
 
 impl Buffer {
@@ -76,7 +85,45 @@ impl Buffer {
                 height: 20,
                 width: 80,
             },
+            last_save_change_id: 0,
+            change_counter: 0,
         }
+    }
+
+    fn record_change(&mut self, change: BufferChange) {
+        self.change_counter += 1;
+        let record = BufferChangeRecord {
+            change,
+            cursor: self.cursor_position,
+            change_id: self.change_counter,
+        };
+        self.undo_stack.push(record);
+        self.redo_stack.clear();
+    }
+
+    // Add method to mark current state as saved
+    pub fn mark_saved(&mut self) {
+        if let Some(record) = self.undo_stack.last() {
+            self.last_save_change_id = record.change_id;
+        } else {
+            self.last_save_change_id = self.change_counter;
+        }
+    }
+
+    // Get the current change ID
+    pub fn current_change_id(&self) -> usize {
+        self.change_counter
+    }
+
+    // Check if there are unsaved changes
+    pub fn has_unsaved_changes(&self) -> bool {
+        if let Some(record) = self.undo_stack.last() {
+            return record.change_id != self.last_save_change_id;
+        }
+        
+        // If this is a new buffer with content
+        self.content.len() > 1 || 
+            (self.content.len() == 1 && !self.content[0].is_empty())
     }
 
     pub fn insert_char(&mut self, c: char) {
@@ -133,52 +180,71 @@ impl Buffer {
         }
     }
 
-    // Record a change that can be undone
-    fn record_change(&mut self, change: BufferChange) {
-        self.undo_stack.push((change, self.cursor_position));
-        self.redo_stack.clear(); // Clear redo stack when new change is made
+    pub fn get_undo_stack(&self) -> &Vec<BufferChangeRecord> {
+        &self.undo_stack
     }
 
-    // Undo last change
     pub fn undo(&mut self) -> bool {
-        if let Some((change, cursor_pos)) = self.undo_stack.pop() {
-            let reverse_change = match change {
+        if let Some(record) = self.undo_stack.pop() {
+            let reverse_record = match record.change {
                 BufferChange::Insert { position, content } => {
                     // For insert, remove the inserted content
                     let (row, col) = position;
                     let line = &mut self.content[row];
                     let end_col = col + content.len();
                     line.replace_range(col..end_col, "");
-                    BufferChange::Delete { position, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::Delete { position, content },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::Delete { position, content } => {
                     // For delete, reinsert the deleted content
                     let (row, col) = position;
                     let line = &mut self.content[row];
                     line.insert_str(col, &content);
-                    BufferChange::Insert { position, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::Insert { position, content },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::NewLine { position, content } => {
                     // For newline, join the lines back
                     let (row, _) = position;
                     let next_line = self.content.remove(row + 1);
                     self.content[row].push_str(&next_line);
-                    BufferChange::DeleteLine { position: row, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::DeleteLine { 
+                            position: row, 
+                            content 
+                        },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::DeleteLine { position, content } => {
                     // For line deletion, reinsert the line
                     self.content.insert(position, content.clone());
-                    BufferChange::NewLine { 
-                        position: (position, 0),
-                        content 
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::NewLine { 
+                            position: (position, 0),
+                            content 
+                        },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
                     }
                 }
             };
             
-            // Save the reverse change to redo stack
-            self.redo_stack.push((reverse_change, self.cursor_position));
-            // Restore cursor position
-            self.cursor_position = cursor_pos;
+            self.change_counter += 1;
+            self.cursor_position = record.cursor;
+            self.redo_stack.push(reverse_record);
             true
         } else {
             false
@@ -187,40 +253,62 @@ impl Buffer {
 
     // Redo last undone change
     pub fn redo(&mut self) -> bool {
-        if let Some((change, cursor_pos)) = self.redo_stack.pop() {
-            let reverse_change = match change {
+        if let Some(record) = self.redo_stack.pop() {
+            let reverse_record = match record.change {
                 BufferChange::Insert { position, content } => {
                     let (row, col) = position;
                     let line = &mut self.content[row];
                     let end_col = col + content.len();
                     line.replace_range(col..end_col, "");
-                    BufferChange::Delete { position, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::Delete { position, content },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::Delete { position, content } => {
                     let (row, col) = position;
                     let line = &mut self.content[row];
                     line.insert_str(col, &content);
-                    BufferChange::Insert { position, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::Insert { position, content },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::NewLine { position, content } => {
                     let (row, _) = position;
                     let next_line = self.content.remove(row + 1);
                     self.content[row].push_str(&next_line);
-                    BufferChange::DeleteLine { position: row, content }
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::DeleteLine { 
+                            position: row,
+                            content 
+                        },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
+                    }
                 }
                 BufferChange::DeleteLine { position, content } => {
                     self.content.insert(position, content.clone());
-                    BufferChange::NewLine { 
-                        position: (position, 0),
-                        content 
+                    
+                    BufferChangeRecord {
+                        change: BufferChange::NewLine { 
+                            position: (position, 0),
+                            content 
+                        },
+                        cursor: self.cursor_position,
+                        change_id: self.change_counter + 1,
                     }
                 }
             };
             
-            // Save the reverse change to undo stack
-            self.undo_stack.push((reverse_change, self.cursor_position));
-            // Restore cursor position
-            self.cursor_position = cursor_pos;
+            self.change_counter += 1;
+            self.cursor_position = record.cursor;
+            self.undo_stack.push(reverse_record);
             true
         } else {
             false
