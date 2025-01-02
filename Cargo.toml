@@ -12,6 +12,7 @@ license = "Unlicense"
 # Terminal UI and Backend
 tui = "0.19.0"                        # For terminal-based UI
 crossterm = "0.28.1"                  # For terminal control
+portable-pty = "0.8.1"                # psuedo terminal system
 
 # Directory and File Handling
 walkdir = "2.5.0"                     # Traverse directories for file tree

@@ -10,9 +10,7 @@ use crossterm::{
 };
 use parking_lot::RwLock;
 use std::sync::Arc;
-
 use crate::editor::{Buffer, Editor, Mode};
-use super::render::Render;
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -224,7 +222,7 @@ impl Renderer {
     fn render_status_line<W: Write>(&self, writer: &mut W, editor: &Editor) -> io::Result<()> {
         let row = self.dimensions.1 - 2;
         let mode_text = editor.mode().display_name();
-        let file_info = editor.current_buffer().file_info();
+        let file_info = editor.file_info();  // Get file info from editor instead of buffer
         let position_info = editor.cursor_position_info();
 
         queue!(
@@ -237,11 +235,13 @@ impl Renderer {
         )
     }
 
+    // Update command line rendering to use mode().command_prefix()
     fn render_command_line<W: Write>(&self, writer: &mut W, editor: &Editor) -> io::Result<()> {
         let row = self.dimensions.1 - 1;
+        let mode = editor.mode();
         
-        if let Mode::Command(cmd_type) = editor.mode() {
-            let prefix = cmd_type.prefix();
+        if let Mode::Command(_) = mode {
+            let prefix = mode.command_prefix();
             let command = editor.command_line_content();
             
             queue!(
@@ -355,14 +355,5 @@ impl Renderer {
 impl Drop for Renderer {
     fn drop(&mut self) {
         let _ = self.cleanup();
-    }
-}
-
-// Implement the Render trait
-impl Render for Renderer {
-    fn render(&self, mode: &Mode) -> Vec<String> {
-        // This implementation is for compatibility with the Render trait
-        // The main rendering is done through the render() method
-        Vec::new()
     }
 }

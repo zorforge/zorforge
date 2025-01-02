@@ -112,18 +112,42 @@ impl Buffer {
 
     // Get the current change ID
     pub fn current_change_id(&self) -> usize {
-        self.change_counter
+        if let Some(record) = self.undo_stack.last() {
+            record.change_id
+        } else {
+            self.change_counter
+        }
     }
 
     // Check if there are unsaved changes
     pub fn has_unsaved_changes(&self) -> bool {
-        if let Some(record) = self.undo_stack.last() {
-            return record.change_id != self.last_save_change_id;
-        }
-        
-        // If this is a new buffer with content
-        self.content.len() > 1 || 
-            (self.content.len() == 1 && !self.content[0].is_empty())
+        // First check if we have any changes at all
+        let has_changes = if let Some(record) = self.undo_stack.last() {
+            record.change_id != self.last_save_change_id
+        } else {
+            false
+        };
+
+        // Then check if this is a new file (no path) with content
+        let is_new_with_content = self.content.len() > 1 || 
+            (self.content.len() == 1 && !self.content[0].is_empty());
+
+        has_changes || is_new_with_content
+    }
+
+    // For debugging and testing - get a count of stored changes
+    pub fn change_count(&self) -> usize {
+        self.undo_stack.len()
+    }
+
+    // For debugging and testing - get undo/redo stack sizes
+    pub fn get_stack_sizes(&self) -> (usize, usize) {
+        (self.undo_stack.len(), self.redo_stack.len())
+    }
+
+    // Get last change record without removing it
+    pub fn peek_last_change(&self) -> Option<&BufferChangeRecord> {
+        self.undo_stack.last()
     }
 
     pub fn insert_char(&mut self, c: char) {
